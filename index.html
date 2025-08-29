@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+  <title>Kid — Distance vs Displacement (Mobile Fixed)</title>
+  <style>
+    html,body { height:100%; margin:0; background:#0b0d10; font-family: Inter, Arial, sans-serif; color:#fff; overflow:hidden; }
+    #app { width:100vw; height:100vh; position:relative; }
+
+    /* HUD */
+    .hud {
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      background: rgba(0,0,0,0.55);
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.04);
+      font-size:14px;
+      z-index: 30;
+      max-width: calc(100% - 24px);
+      box-sizing: border-box;
+      backdrop-filter: blur(5px);
+    }
+    .hud b { display:inline-block; width:92px; }
+
+    /* Mobile controls */
+    #controls {
+      position: absolute;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      display:flex;
+      gap:18px;
+      z-index:30;
+    }
+    .btn {
+      width:64px; height:64px; border-radius:50%;
+      background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15);
+      color:#fff; display:flex; align-items:center; justify-content:center; font-size:22px;
+      -webkit-tap-highlight-color: transparent;
+      user-select:none;
+      touch-action: manipulation;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+      transition: transform 0.1s, background 0.2s;
+    }
+    .btn:active { 
+      transform: scale(0.92); 
+      background: rgba(255,255,255,0.15);
+    }
+
+    /* scale label DOM elements */
+    .scale-label {
+      position: absolute;
+      pointer-events: none;
+      transform-origin: center bottom;
+      transform: translate(-50%, -6px) scale(0.6);
+      background: rgba(0,0,0,0.6);
+      padding: 4px 6px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.06);
+      font-size:13px;
+      color: #fff;
+      opacity: 0;
+      z-index: 25;
+      white-space: nowrap;
+      backdrop-filter: blur(4px);
+    }
+
+    /* small hint for desktop */
+    .hint {
+      position: absolute; right:12px; top:12px; z-index:30; color: rgba(255,255,255,0.75); font-size:13px;
+      background: rgba(0,0,0,0.35); padding:8px 10px; border-radius:8px; border:1px solid rgba(255,255,255,0.03);
+      max-width: calc(100% - 24px);
+      box-sizing: border-box;
+      backdrop-filter: blur(4px);
+    }
+
+    /* Responsive adjustments */
+    @media (max-width:768px) {
+      .hud { left: 8px; top: 8px; font-size:13px; padding:8px; }
+      .hud b { width: 80px; }
+      .btn { width:56px; height:56px; font-size:20px; }
+      .hint { right: 8px; top: 8px; font-size: 12px; }
+    }
+
+    @media (max-width:480px) {
+      .hud { font-size: 12px; padding: 6px 8px; }
+      .hud b { width: 70px; }
+      .btn { width:50px; height:50px; font-size:18px; }
+      .hint { display: none; }
+      
+      /* Adjust HUD text for very small screens */
+      .hud div:nth-child(3) { font-size: 11px; }
+    }
+
+    /* Loading indicator */
+    .loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 16px;
+      z-index: 40;
+      background: rgba(0,0,0,0.7);
+      padding: 15px 20px;
+      border-radius: 10px;
+      backdrop-filter: blur(5px);
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="loading" id="loading">Loading simulation...</div>
+
+  <div class="hud" id="hud">
+    <div><b>Distance:</b> <span id="distance">0.00</span> m</div>
+    <div><b>Displacement:</b><br> <span id="displacement">0.00</span> m</div>
+  </div>
+
+
+  <div id="controls">
+    <div class="btn" id="btn-left">◀</div>
+    <div class="btn" id="btn-right">▶</div>
+  </div>
+
+  <!-- libs -->
+  <script src="https://unpkg.com/three@0.158.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/animejs@3.2.1/lib/anime.min.js"></script>
+
+  <script>
+  (function(){
+    // Show loading initially
+    const loadingEl = document.getElementById('loading');
+    
+    // Wait for resources to load
+    window.addEventListener('load', function() {
+      setTimeout(initSimulation, 100);
+    });
+    
+    function initSimulation() {
+      loadingEl.style.display = 'none';
+      
+      const app = document.getElementById('app');
+
+      // Renderer & scene
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      app.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0b0d10);
+
+      // Camera - adjust based on device
+      const isMobile = window.innerWidth <= 768;
+      const camera = new THREE.PerspectiveCamera(
+        isMobile ? 65 : 55, 
+        window.innerWidth/window.innerHeight, 
+        0.1, 
+        1000
+      );
+      
+      // Adjust camera position based on device
+      if (isMobile) {
+        camera.position.set(0, 5.5, 22);
+      } else {
+        camera.position.set(0, 6.2, 18);
+      }
+
+      // Light
+      scene.add(new THREE.AmbientLight(0xaaaaaa, 0.7));
+      const key = new THREE.DirectionalLight(0xffffff, 1);
+      key.position.set(8, 15, 10);
+      scene.add(key);
+
+      // Add a fill light to reduce shadows
+      const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
+      fillLight.position.set(-8, 5, -10);
+      scene.add(fillLight);
+
+      // Ground plane
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(80, 12),
+        new THREE.MeshPhongMaterial({ color: 0x2a2f36, side: THREE.DoubleSide })
+      );
+      ground.rotation.x = -Math.PI/2;
+      ground.position.y = 0;
+      scene.add(ground);
+
+      // Scale (3D line under feet)
+      const scaleGroup = new THREE.Group();
+      const TICK_MIN = -20;
+      const TICK_MAX = 20;
+      for (let x = TICK_MIN; x <= TICK_MAX; x += 1) {
+        const height = (x % 5 === 0) ? 0.6 : 0.3;
+        const tick = new THREE.Mesh(
+          new THREE.BoxGeometry(0.06, height, 0.06),
+          new THREE.MeshStandardMaterial({ color: 0xffffff })
+        );
+        tick.position.set(x, 0.01 + height/2 - 0.3, 0.01);
+        scaleGroup.add(tick);
+      }
+      // Base ruler bar
+      const bar = new THREE.Mesh(
+        new THREE.BoxGeometry((TICK_MAX - TICK_MIN) + 0.6, 0.08, 0.12),
+        new THREE.MeshStandardMaterial({ color: 0x111827 })
+      );
+      bar.position.set((TICK_MIN + TICK_MAX)/2, -0.3, 0.01);
+      scaleGroup.add(bar);
+      scene.add(scaleGroup);
+
+      // Create number labels as HTML elements for major ticks (every 5)
+      const labels = [];
+      for (let x = TICK_MIN; x <= TICK_MAX; x += 5) {
+        const div = document.createElement('div');
+        div.className = 'scale-label';
+        div.textContent = String(x);
+        div.style.opacity = '0';
+        document.body.appendChild(div);
+        labels.push({ x, el: div, visible:false });
+      }
+
+      // Kid blocky avatar (head + body + legs)
+      const kid = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.6, 0.6), new THREE.MeshStandardMaterial({ color: 0x3b82f6 }));
+      body.position.y = 1.0;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.38,16,16), new THREE.MeshStandardMaterial({ color: 0xffddb0 }));
+      head.position.y = 2.05;
+      const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.8, 0.28), new THREE.MeshStandardMaterial({ color: 0x111827 }));
+      leftLeg.position.set(-0.22, 0.2, 0);
+      const rightLeg = leftLeg.clone();
+      rightLeg.position.x = 0.22;
+      kid.add(body, head, leftLeg, rightLeg);
+      kid.position.set(0, 0, 0);
+      scene.add(kid);
+
+      // movement state
+      let moveDir = 0;            // -1 left, 0 stop, 1 right
+      const speed = 6.0;         // units per second (1 unit = 1 m)
+      let totalDistance = 0;
+
+      // HUD elements
+      const elDist  = document.getElementById('distance');
+      const elDisp  = document.getElementById('displacement');
+
+      function updateHUD() {
+        elDist.textContent = totalDistance.toFixed(2);
+        const disp = Math.abs(kid.position.x);
+        // treat very small near-zero as zero
+        elDisp.textContent = (Math.abs(disp) < 0.05 ? '0.00' : disp.toFixed(2));
+      }
+
+      // controls (keyboard)
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowLeft') moveDir = -1;
+        if (e.key === 'ArrowRight') moveDir = 1;
+      });
+      window.addEventListener('keyup', (e) => {
+        if (e.key === 'ArrowLeft' && moveDir === -1) moveDir = 0;
+        if (e.key === 'ArrowRight' && moveDir === 1) moveDir = 0;
+      });
+
+      // mobile buttons
+      const btnLeft = document.getElementById('btn-left');
+      const btnRight = document.getElementById('btn-right');
+
+      // Improved touch controls
+      function bindBtn(btn, dir){
+        let pointerActive = false;
+        
+        const start = () => { 
+          pointerActive = true; 
+          moveDir = dir; 
+          btn.style.transform = 'scale(0.92)';
+          btn.style.background = 'rgba(255,255,255,0.15)';
+        };
+        
+        const end = () => { 
+          pointerActive = false; 
+          moveDir = 0; 
+          btn.style.transform = ''; 
+          btn.style.background = ''; 
+        };
+        
+        // Touch events
+        btn.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          start();
+        }, { passive: false });
+        
+        btn.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          end();
+        }, { passive: false });
+        
+        btn.addEventListener('touchcancel', (e) => {
+          e.preventDefault();
+          end();
+        }, { passive: false });
+        
+        // Mouse events for desktop touchscreens
+        btn.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          start();
+        });
+        
+        window.addEventListener('mouseup', (e) => {
+          if(pointerActive) end();
+        });
+      }
+      
+      bindBtn(btnLeft, -1);
+      bindBtn(btnRight, 1);
+
+      // utility: project a 3D position to screen coords
+      function toScreenPosition(pos, camera) {
+        const vector = pos.clone().project(camera);
+        const halfW = renderer.domElement.clientWidth / 2;
+        const halfH = renderer.domElement.clientHeight / 2;
+        return {
+          x: ( vector.x * halfW ) + halfW,
+          y: ( -vector.y * halfH ) + halfH,
+          z: vector.z
+        };
+      }
+
+      // label show/hide state tracking to avoid re-animating each frame
+      const labelState = new Map();
+
+      // animate label in
+      function showLabel(label) {
+        if (labelState.get(label.x)) return;
+        labelState.set(label.x, true);
+        anime.remove(label.el);
+        anime({
+          targets: label.el,
+          opacity: [0,1],
+          translateY: [8, 0],
+          scale: [0.7, 1],
+          duration: 420,
+          easing: 'easeOutBack'
+        });
+      }
+      
+      // animate label out
+      function hideLabel(label) {
+        if (!labelState.get(label.x)) return;
+        labelState.set(label.x, false);
+        anime.remove(label.el);
+        anime({
+          targets: label.el,
+          opacity: [1,0],
+          translateY: [0, 8],
+          scale: [1, 0.7],
+          duration: 280,
+          easing: 'easeInQuad'
+        });
+      }
+
+      // clamp kid within ticks
+      function clampX(x) {
+        return Math.max(TICK_MIN, Math.min(TICK_MAX, x));
+      }
+
+      // render loop
+      let lastFrame = performance.now();
+      function render(now) {
+        requestAnimationFrame(render);
+        const dt = Math.min(0.05, (now - lastFrame) / 1000);
+        lastFrame = now;
+
+        // continuous movement
+        if (moveDir !== 0) {
+          const delta = moveDir * speed * dt;
+          const newX = clampX(kid.position.x + delta);
+          const deltaMoved = Math.abs(newX - kid.position.x);
+          if (deltaMoved > 1e-6) {
+            kid.position.x = newX;
+            totalDistance += deltaMoved;
+          }
+        }
+
+        // Update HUD
+        updateHUD();
+
+        // Camera behavior: Always follow the kid smoothly
+        const targetX = kid.position.x;
+        camera.position.x += (targetX - camera.position.x) * 0.12;
+        
+        // Adjust camera height and distance based on device
+        if (isMobile) {
+          camera.position.y = 5.5;
+          camera.position.z = 22;
+        } else {
+          camera.position.y = 6.2;
+          camera.position.z = 18;
+        }
+        
+        camera.lookAt(new THREE.Vector3(camera.position.x, 0, 0));
+
+        // Position labels above ticks
+        const showRadius = 4.0;
+        labels.forEach(label => {
+          const worldPos = new THREE.Vector3(label.x, 0.4, 0.02);
+          const screen = toScreenPosition(worldPos, camera);
+
+          // hide labels if behind camera
+          if (screen.z > 1 || screen.z < -1) {
+            hideLabel(label);
+            return;
+          }
+
+          // place DOM element
+          label.el.style.left = `${screen.x}px`;
+          label.el.style.top  = `${screen.y - 30}px`;
+
+          // determine pop condition
+          const distToKid = Math.abs(kid.position.x - label.x);
+          if (distToKid <= showRadius) {
+            showLabel(label);
+          } else {
+            hideLabel(label);
+          }
+        });
+
+        renderer.render(scene, camera);
+      }
+      
+      // Start the render loop after a brief delay
+      setTimeout(() => {
+        render(performance.now());
+      }, 100);
+
+      // Responsive handling
+      function handleResize() {
+        const newIsMobile = window.innerWidth <= 768;
+        
+        // Update camera if mobile state changed
+        if (newIsMobile !== isMobile) {
+          if (newIsMobile) {
+            camera.position.y = 5.5;
+            camera.position.z = 22;
+            camera.fov = 65;
+          } else {
+            camera.position.y = 6.2;
+            camera.position.z = 18;
+            camera.fov = 55;
+          }
+          camera.updateProjectionMatrix();
+        }
+        
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        
+        // Update hint visibility based on screen size
+        const hint = document.querySelector('.hint');
+        if (window.innerWidth <= 480) {
+          hint.style.display = 'none';
+        } else {
+          hint.style.display = 'block';
+        }
+      }
+      
+      window.addEventListener('resize', handleResize);
+      handleResize();
+
+      // ensure metrics initialized
+      updateHUD();
+    }
+  })();
+  </script>
+</body>
+</html>
